@@ -2,8 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::{
     timestamp::Timestamp,
-    transaction::{TxnId, TxnMetadata},
-    version::TxnIdOrTimestamp::Infinity,
+    transaction::{TransactionManager, TxnId, TxnStatus},
 };
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -22,21 +21,52 @@ pub struct Version {
     pub value: Value,
     pub begin: Mutex<TxnIdOrTimestamp>,
     pub end: Mutex<TxnIdOrTimestamp>,
-    pub previous: Option<Arc<Version>>,
+    pub previous: Mutex<Option<Arc<Version>>>,
 }
 
 impl Version {
-    pub fn is_visible_at(&self, ts: Timestamp) -> bool {
+    pub fn is_visible_at(
+        &self,
+        ts: Timestamp,
+        reader: TxnId,
+        txn_manager: &TransactionManager,
+    ) -> bool {
         let begin = *self.begin.lock().unwrap();
         let end = *self.end.lock().unwrap();
-        match (begin, end) {
-            (TxnIdOrTimestamp::Timestamp(begin), TxnIdOrTimestamp::Timestamp(end)) => {
-                begin <= ts && ts < end
+
+        let txn_status = |id: TxnId| {
+            let metadata = txn_manager
+                .get(id)
+                .expect("version references transaction that doesn't exist");
+            metadata.status()
+        };
+
+        let visible_according_to_begin = match begin {
+            TxnIdOrTimestamp::Infinity => false,
+            TxnIdOrTimestamp::Timestamp(begin_ts) => begin_ts <= ts,
+            TxnIdOrTimestamp::TxnId(writer) if writer == reader => {
+                end == TxnIdOrTimestamp::Infinity
             }
+            TxnIdOrTimestamp::TxnId(writer) => match txn_status(writer) {
+                TxnStatus::Active | TxnStatus::Aborted => false,
+                TxnStatus::Committed { end_ts } => end_ts <= ts,
+                TxnStatus::Preparing { .. } => todo!("handle speculative reads"),
+            },
+        };
+        if !visible_according_to_begin {
+            return false;
+        }
 
-            (TxnIdOrTimestamp::Timestamp(begin), TxnIdOrTimestamp::Infinity) => begin <= ts,
-
-            _ => todo!("handle case where begin/end is a transaction id"),
+        match end {
+            TxnIdOrTimestamp::Infinity => true,
+            TxnIdOrTimestamp::Timestamp(end_ts) => ts < end_ts,
+            TxnIdOrTimestamp::TxnId(writer) => match txn_status(writer) {
+                // See errata for this case. Larson paper is wrong.
+                TxnStatus::Active => writer != reader,
+                TxnStatus::Aborted => true,
+                TxnStatus::Committed { end_ts } => ts < end_ts,
+                TxnStatus::Preparing { .. } => todo!("handle speculative reads"),
+            },
         }
     }
 }
