@@ -108,11 +108,21 @@ pub enum WriteError {
     AlreadyWritten,
 }
 
-impl Transaction {
-    pub fn optimistic_read(&mut self, store: &Store, key: Key) -> Option<Value> {
-        // Panic if called on an aborted/committed transaction
-        assert!(matches!(self.metadata.status(), TxnStatus::Active));
+#[derive(Debug)]
+pub enum CommitError {}
 
+impl Transaction {
+    /// Panic if called on an aborted/committed transaction
+    fn panic_if_not_active(&self) {
+        assert!(matches!(self.metadata.status(), TxnStatus::Active));
+    }
+
+    pub fn optimistic_read(&mut self, store: &Store, key: Key) -> Option<Value> {
+        self.panic_if_not_active();
+        self.optimistic_read_impl(store, key)
+    }
+
+    fn optimistic_read_impl(&mut self, store: &Store, key: Key) -> Option<Value> {
         let mut current = store.get_latest_version(key);
         while let Some(version) = current {
             if version.is_visible_at(self.metadata.begin_ts, self.metadata.id, &self.manager) {
@@ -125,10 +135,16 @@ impl Transaction {
         None
     }
 
-    pub fn write(&mut self, store: &Store, key: Key, value: Value) -> Result<(), WriteError> {
-        // Panic if called on an aborted/committed transaction
-        assert!(matches!(self.metadata.status(), TxnStatus::Active));
+    pub fn optimistic_scan(&mut self, store: &Store) -> Option<Vec<Value>> {
+        self.panic_if_not_active();
+        store
+            .key_range()
+            .map(|key| self.optimistic_read_impl(store, key))
+            .collect()
+    }
 
+    pub fn write(&mut self, store: &Store, key: Key, value: Value) -> Result<(), WriteError> {
+        self.panic_if_not_active();
         if self.write_set.iter().any(|entry| entry.new.key == key) {
             return Err(WriteError::AlreadyWritten);
         }

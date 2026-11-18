@@ -1,5 +1,5 @@
 use std::{
-    sync::{Arc, Mutex},
+    ops::Range, sync::{Arc, Mutex},
 };
 
 use crate::{
@@ -32,6 +32,10 @@ impl Store {
                 })
                 .collect(),
         }
+    }
+
+    pub fn key_range(&self) -> Range<Key> {
+        0..(self.map.len() as u64)
     }
 
     pub fn get_latest_version(&self, key: Key) -> Option<Arc<Version>> {

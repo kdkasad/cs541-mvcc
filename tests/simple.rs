@@ -52,3 +52,13 @@ fn read_ignores_later_uncommitted_write() {
     assert_eq!(Some(1), t1.optimistic_read(&store, 0));
     assert_eq!(Some(2), t2.optimistic_read(&store, 0));
 }
+
+#[test]
+fn simple_scan() {
+    let store = Store::new(vec![1, 2, 3, 4, 5]);
+    let manager = TransactionManager::new();
+    let mut t1 = manager.begin();
+    assert_eq!(Some(vec![1, 2, 3, 4, 5]), t1.optimistic_scan(&store));
+    t1.write(&store, 0, 2).unwrap();
+    assert_eq!(Some(vec![2, 2, 3, 4, 5]), t1.optimistic_scan(&store));
+}
