@@ -104,14 +104,15 @@ pub enum WriteError {
     /// A write-write conflict happened.
     /// Another transaction updated the same key during our transaction.
     Conflict,
-    /// Transaction is not active (i.e. commit has already been called)
-    NotActive,
     /// This key has already been written in this transaction.
     AlreadyWritten,
 }
 
 impl Transaction {
     pub fn optimistic_read(&mut self, store: &Store, key: Key) -> Option<Value> {
+        // Panic if called on an aborted/committed transaction
+        assert!(matches!(self.metadata.status(), TxnStatus::Active));
+
         let mut current = store.get_latest_version(key);
         while let Some(version) = current {
             if version.is_visible_at(self.metadata.begin_ts, self.metadata.id, &self.manager) {
@@ -125,9 +126,9 @@ impl Transaction {
     }
 
     pub fn write(&mut self, store: &Store, key: Key, value: Value) -> Result<(), WriteError> {
-        if !matches!(self.metadata.status(), TxnStatus::Active) {
-            return Err(WriteError::NotActive);
-        }
+        // Panic if called on an aborted/committed transaction
+        assert!(matches!(self.metadata.status(), TxnStatus::Active));
+
         if self.write_set.iter().any(|entry| entry.new.key == key) {
             return Err(WriteError::AlreadyWritten);
         }
