@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::{Arc, Mutex}};
 
-use crate::{timestamp::Timestamp, version::Version};
+use crate::{store::Store, timestamp::Timestamp, version::{Key, Value, Version}};
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct TxnId(pub u64);
@@ -25,13 +25,6 @@ impl TxnMetadata {
     pub fn status(&self) -> TxnStatus {
         *self.status.lock().unwrap()
     }
-}
-
-#[derive(Debug)]
-pub struct Transaction {
-    metadata: Arc<TxnMetadata>,
-    read_set: Vec<Arc<Version>>,
-    write_set: Vec<Arc<Version>>,
 }
 
 #[derive(Debug)]
@@ -70,5 +63,28 @@ impl TransactionManager {
 
     pub fn get(&self, id: TxnId) -> Option<Arc<TxnMetadata>> {
         self.transactions.get(&id).cloned()
+    }
+}
+
+#[derive(Debug)]
+pub struct Transaction {
+    metadata: Arc<TxnMetadata>,
+    read_set: Vec<Arc<Version>>,
+    write_set: Vec<Arc<Version>>,
+}
+
+impl Transaction {
+    pub fn optimistic_read(&mut self, store: &Store, key: Key) -> Option<Value> {
+        let mut current = store.get_latest_version(key);
+        let read_ts = self.metadata.begin_ts;
+        while let Some(version) = current {
+            if version.is_visible_at(read_ts) {
+                let value = version.value;
+                self.read_set.push(version);
+                return Some(value);
+            }
+            current = version.previous.clone();
+        }
+        None
     }
 }
