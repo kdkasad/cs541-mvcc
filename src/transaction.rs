@@ -35,7 +35,7 @@ pub struct Transaction {
 }
 
 #[derive(Debug)]
-struct TransactionManager {
+pub struct TransactionManager {
     next_id: u64,
     next_timestamp: u64,
     transactions: HashMap<TxnId, Arc<TxnMetadata>>,
