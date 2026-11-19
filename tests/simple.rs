@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use cs541_mvcc::{store::Store, transaction::TransactionManager, version::Version};
+use cs541_mvcc::{
+    store::Store,
+    transaction::{CommitError, TransactionManager, WriteError},
+    version::Version,
+};
 
 #[allow(dead_code)]
 fn print_version_chain(head: Option<Arc<Version>>) {
@@ -75,7 +79,7 @@ fn read_after_commit() {
     let manager = TransactionManager::new();
     let mut t1 = manager.begin();
     t1.write(&store, 0, 2).unwrap();
-    t1.optimistic_commit().unwrap();
+    t1.optimistic_commit(&store).unwrap();
     let mut t2 = manager.begin();
     assert_eq!(Some(2), t2.optimistic_read(&store, 0));
 }
@@ -89,7 +93,7 @@ fn read_before_and_after_commit() {
     assert_eq!(Some(1), t1.optimistic_read(&store, 0));
     t2.write(&store, 0, 2).unwrap();
     assert_eq!(Some(1), t1.optimistic_read(&store, 0));
-    t2.optimistic_commit().unwrap();
+    t2.optimistic_commit(&store).unwrap();
     assert_eq!(Some(1), t1.optimistic_read(&store, 0));
 }
 
@@ -100,10 +104,46 @@ fn conflicting_writes_abort_second_writer() {
     let mut t1 = manager.begin();
     let mut t2 = manager.begin();
     t1.write(&store, 0, 2).unwrap();
-    t2.write(&store, 0, 3).unwrap();
+    // Larson et al. section 2.6:
+    // > This is a write-write conflict. We follow the
+    // > first-writer-wins rule and force transaction T to abort.
+    assert_eq!(Err(WriteError::Conflict), t2.write(&store, 0, 3));
     assert_eq!(Some(2), t1.optimistic_read(&store, 0));
     assert_eq!(Some(1), t2.optimistic_read(&store, 0));
-    t1.optimistic_commit().unwrap();
+    t1.optimistic_commit(&store).unwrap();
+    assert_eq!(
+        Err(CommitError::NotSerializable),
+        t2.optimistic_commit(&store)
+    );
     let mut t3 = manager.begin();
     assert_eq!(Some(2), t3.optimistic_read(&store, 0));
+}
+
+#[test]
+fn aborted_write_is_ignored() {
+    let store = Store::new(vec![1, 2, 3, 4, 5]);
+    let manager = TransactionManager::new();
+    let mut t1 = manager.begin();
+    t1.write(&store, 0, 2).unwrap();
+    assert_eq!(Some(2), t1.optimistic_read(&store, 0));
+    t1.abort(&store);
+    let mut t2 = manager.begin();
+    assert_eq!(Some(1), t2.optimistic_read(&store, 0));
+}
+
+#[test]
+fn write_after_aborted_write_succeeds() {
+    let store = Store::new(vec![1, 2, 3, 4, 5]);
+    let manager = TransactionManager::new();
+    let mut t1 = manager.begin();
+    t1.write(&store, 0, 2).unwrap();
+    assert_eq!(Some(2), t1.optimistic_read(&store, 0));
+    t1.abort(&store);
+    let mut t2 = manager.begin();
+    assert_eq!(Some(1), t2.optimistic_read(&store, 0));
+    t2.write(&store, 0, 3).unwrap();
+    assert_eq!(Some(3), t2.optimistic_read(&store, 0));
+    t2.optimistic_commit(&store).unwrap();
+    let mut t3 = manager.begin();
+    assert_eq!(Some(3), t3.optimistic_read(&store, 0));
 }

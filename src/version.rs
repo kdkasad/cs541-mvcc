@@ -52,7 +52,10 @@ impl Version {
             TxnIdOrTimestamp::TxnId(writer) => match txn_status(writer) {
                 TxnStatus::Active | TxnStatus::Aborted => false,
                 TxnStatus::Committed { end_ts } => end_ts <= ts,
-                TxnStatus::Preparing { .. } => todo!("handle speculative reads"),
+                TxnStatus::Preparing { .. } => {
+                    eprintln!("Making version invisible because the writer is preparing");
+                    false
+                }
             },
         };
         if !visible_according_to_begin {
@@ -67,7 +70,10 @@ impl Version {
                 TxnStatus::Active => writer != reader,
                 TxnStatus::Aborted => true,
                 TxnStatus::Committed { end_ts } => ts < end_ts,
-                TxnStatus::Preparing { .. } => todo!("handle speculative reads"),
+                TxnStatus::Preparing { .. } => {
+                    eprintln!("Making version invisible because the writer is preparing");
+                    false
+                }
             },
         }
     }

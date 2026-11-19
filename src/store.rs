@@ -1,5 +1,6 @@
 use std::{
-    ops::Range, sync::{Arc, Mutex},
+    ops::Range,
+    sync::{Arc, Mutex},
 };
 
 use crate::{
@@ -39,7 +40,7 @@ impl Store {
     }
 
     pub fn get_latest_version(&self, key: Key) -> Option<Arc<Version>> {
-        let index = usize::try_from(key).ok()?;
+        let index: usize = usize::try_from(key).ok()?;
         let head = self.map.get(index)?;
         Some(Arc::clone(&head.lock().unwrap()))
     }
@@ -86,5 +87,13 @@ impl Store {
             *head = Arc::clone(&new);
         }
         Ok(WriteEntry { old, new })
+    }
+
+    pub fn remove_head(&self, version: Arc<Version>) {
+        let key = version.key;
+        let mut head = self.map.get(key as usize).unwrap().lock().unwrap();
+        assert!(Arc::ptr_eq(&version, &*head));
+        let new_head = head.previous.lock().unwrap().clone().unwrap();
+        *head = new_head;
     }
 }

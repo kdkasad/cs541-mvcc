@@ -101,7 +101,7 @@ pub struct Transaction {
     manager: Arc<TransactionManager>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum WriteError {
     /// The given key is not in the range covered by the store.
     KeyOutOfRange,
@@ -112,7 +112,7 @@ pub enum WriteError {
     AlreadyWritten,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CommitError {
     NotSerializable,
 }
@@ -159,7 +159,7 @@ impl Transaction {
         Ok(())
     }
 
-    pub fn abort(&mut self) {
+    pub fn abort(&mut self, store: &Store) {
         assert!(matches!(
             self.metadata.status(),
             TxnStatus::Active | TxnStatus::Preparing { .. }
@@ -167,7 +167,10 @@ impl Transaction {
 
         *self.metadata.status.lock().unwrap() = TxnStatus::Aborted;
         for WriteEntry { old, new } in std::mem::take(&mut self.write_set) {
-            *new.begin.lock().unwrap() = TxnIdOrTimestamp::Infinity;
+            // Larson et al. sets the begin timestamp to infinity. Instead, we
+            // just remove the version from the list.
+            store.remove_head(new);
+
             let mut end = old.end.lock().unwrap();
             if let TxnIdOrTimestamp::TxnId(writer) = *end
                 && writer == self.metadata.id
@@ -179,7 +182,7 @@ impl Transaction {
         self.manager.remove(self.metadata.id);
     }
 
-    pub fn optimistic_commit(&mut self) -> Result<(), CommitError> {
+    pub fn optimistic_commit(&mut self, store: &Store) -> Result<(), CommitError> {
         self.panic_if_not_active();
         let end_ts = {
             // We need to update our transaction's status while still holding the manager lock
@@ -240,7 +243,7 @@ impl Transaction {
         }
 
         if abort {
-            self.abort();
+            self.abort(store);
             return Err(CommitError::NotSerializable);
         }
 
