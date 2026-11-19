@@ -31,21 +31,23 @@ impl Version {
         reader: TxnId,
         txn_manager: &TransactionManager,
     ) -> bool {
-        let begin = *self.begin.lock().unwrap();
-        let end = *self.end.lock().unwrap();
+        // Hold the locks so we don't hit a race condition between reading the
+        // fields and checking the manager for the transactions they reference
+        let begin = self.begin.lock().unwrap();
+        let end = self.end.lock().unwrap();
 
         let txn_status = |id: TxnId| {
-            let metadata = txn_manager
+            txn_manager
                 .get(id)
-                .expect("version references transaction that doesn't exist");
-            metadata.status()
+                .expect("version references transaction that doesn't exist")
+                .status()
         };
 
-        let visible_according_to_begin = match begin {
+        let visible_according_to_begin = match *begin {
             TxnIdOrTimestamp::Infinity => false,
             TxnIdOrTimestamp::Timestamp(begin_ts) => begin_ts <= ts,
             TxnIdOrTimestamp::TxnId(writer) if writer == reader => {
-                end == TxnIdOrTimestamp::Infinity
+                *end == TxnIdOrTimestamp::Infinity
             }
             TxnIdOrTimestamp::TxnId(writer) => match txn_status(writer) {
                 TxnStatus::Active | TxnStatus::Aborted => false,
@@ -57,7 +59,7 @@ impl Version {
             return false;
         }
 
-        match end {
+        match *end {
             TxnIdOrTimestamp::Infinity => true,
             TxnIdOrTimestamp::Timestamp(end_ts) => ts < end_ts,
             TxnIdOrTimestamp::TxnId(writer) => match txn_status(writer) {

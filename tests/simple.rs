@@ -7,7 +7,13 @@ fn print_version_chain(head: Option<Arc<Version>>) {
     let mut current = head;
     println!("Start version chain");
     while let Some(version) = current {
-        println!("begin = {:?}, end = {:?}, key = {}, value = {}", version.begin.lock().unwrap(), version.end.lock().unwrap(), version.key, version.value);
+        println!(
+            "begin = {:?}, end = {:?}, key = {}, value = {}",
+            version.begin.lock().unwrap(),
+            version.end.lock().unwrap(),
+            version.key,
+            version.value
+        );
         current = version.previous.lock().unwrap().clone();
     }
     println!("End version chain");
@@ -61,4 +67,43 @@ fn simple_scan() {
     assert_eq!(Some(vec![1, 2, 3, 4, 5]), t1.optimistic_scan(&store));
     t1.write(&store, 0, 2).unwrap();
     assert_eq!(Some(vec![2, 2, 3, 4, 5]), t1.optimistic_scan(&store));
+}
+
+#[test]
+fn read_after_commit() {
+    let store = Store::new(vec![1, 2, 3, 4, 5]);
+    let manager = TransactionManager::new();
+    let mut t1 = manager.begin();
+    t1.write(&store, 0, 2).unwrap();
+    t1.optimistic_commit().unwrap();
+    let mut t2 = manager.begin();
+    assert_eq!(Some(2), t2.optimistic_read(&store, 0));
+}
+
+#[test]
+fn read_before_and_after_commit() {
+    let store = Store::new(vec![1, 2, 3, 4, 5]);
+    let manager = TransactionManager::new();
+    let mut t1 = manager.begin();
+    let mut t2 = manager.begin();
+    assert_eq!(Some(1), t1.optimistic_read(&store, 0));
+    t2.write(&store, 0, 2).unwrap();
+    assert_eq!(Some(1), t1.optimistic_read(&store, 0));
+    t2.optimistic_commit().unwrap();
+    assert_eq!(Some(1), t1.optimistic_read(&store, 0));
+}
+
+#[test]
+fn conflicting_writes_abort_second_writer() {
+    let store = Store::new(vec![1, 2, 3, 4, 5]);
+    let manager = TransactionManager::new();
+    let mut t1 = manager.begin();
+    let mut t2 = manager.begin();
+    t1.write(&store, 0, 2).unwrap();
+    t2.write(&store, 0, 3).unwrap();
+    assert_eq!(Some(2), t1.optimistic_read(&store, 0));
+    assert_eq!(Some(1), t2.optimistic_read(&store, 0));
+    t1.optimistic_commit().unwrap();
+    let mut t3 = manager.begin();
+    assert_eq!(Some(2), t3.optimistic_read(&store, 0));
 }
