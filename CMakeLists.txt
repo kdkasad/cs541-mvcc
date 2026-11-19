@@ -21,7 +21,7 @@ target_link_libraries(cs541_mvcc_demo PRIVATE cs541_mvcc)
 
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(cs541_mvcc_tests tests/simple.cpp)
+    add_executable(cs541_mvcc_tests tests/tests.cpp)
     target_link_libraries(cs541_mvcc_tests PRIVATE cs541_mvcc)
     foreach(test_name IN ITEMS
         simple_read_existing
@@ -37,6 +37,8 @@ if(BUILD_TESTING)
         non_repeatable_read_is_aborted
         version_created_and_invalidated_within_read_transaction
         non_conflicting_writes_both_commit
+        parallel_reads_partitioned_keys
+        parallel_writes_partitioned_keys
     )
         add_test(NAME ${test_name} COMMAND cs541_mvcc_tests ${test_name})
         set_tests_properties(${test_name} PROPERTIES TIMEOUT 10)

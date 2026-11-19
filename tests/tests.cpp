@@ -1,46 +1,13 @@
+#include "cs541_mvcc/transaction.hpp"
+#include "utils.h"
 #include "cs541_mvcc/lib.hpp"
 
 #include <iostream>
-#include <stdexcept>
-#include <string>
+#include <numeric>
 #include <string_view>
-#include <utility>
+#include <thread>
 
 using namespace cs541_mvcc;
-
-void __do_assert(bool condition, const char* expression, int line) {
-    if (!condition) {
-        throw std::runtime_error(std::string(expression) + " at line " + std::to_string(line));
-    }
-}
-
-#define ASSERT(expression) __do_assert((expression), #expression, __LINE__)
-#define ASSERT_EQ(left, right) __do_assert(((left) == (right)), #left " == " #right, __LINE__)
-
-void print_boundary(const TxnIdOrTimestamp& boundary) {
-    if (std::holds_alternative<Infinity>(boundary)) {
-        std::cout << "Infinity";
-    } else if (const auto* timestamp = std::get_if<Timestamp>(&boundary)) {
-        std::cout << "Timestamp(Timestamp(" << timestamp->value << "))";
-    } else {
-        std::cout << "TxnId(TxnId(" << std::get<TxnId>(boundary).value << "))";
-    }
-}
-
-[[maybe_unused]] void print_version_chain(std::shared_ptr<Version> head) {
-    auto current = std::move(head);
-    std::cout << "Start version chain\n";
-    while (current) {
-        auto version = current;
-        std::cout << "begin = ";
-        print_boundary(*version->begin.lock());
-        std::cout << ", end = ";
-        print_boundary(*version->end.lock());
-        std::cout << ", key = " << version->key << ", value = " << version->value << '\n';
-        current = *version->previous.lock();
-    }
-    std::cout << "End version chain" << std::endl;
-}
 
 void simple_read_existing() {
     const Store store({1, 2, 3, 4, 5});
@@ -198,6 +165,58 @@ void non_conflicting_writes_both_commit() {
     ASSERT_EQ(std::optional<Value>(3), t3.optimistic_read(store, 1));
 }
 
+// Spawn N_THREADS threads. Each one reads key i 100 times then commits.
+void parallel_reads_partitioned_keys() {
+    const std::uint16_t N_THREADS = 256;
+    std::vector<Value> initial_values(N_THREADS);
+    std::iota(initial_values.begin(), initial_values.end(), 1);
+    const Store store(initial_values);
+    auto manager = TransactionManager::create();
+    std::vector<std::thread> threads(N_THREADS);
+    for (std::uint16_t i = 0; i < N_THREADS; i++) {
+        threads[i] = std::thread([&manager, &store, i]() {
+            Key key = i;
+            auto t = manager->begin();
+            for (unsigned char j = 0; j < 100; j++) {
+                ASSERT_EQ(std::optional<Value>(i + 1), t.optimistic_read(store, key));
+            }
+            ASSERT(t.optimistic_commit(store).has_value());
+        });
+    }
+    for (std::thread& t : threads) {
+        t.join();
+    }
+}
+
+// Spawn N_THREADS threads. Each one opens a transaction, writes key i, and commits 100 times.
+void parallel_writes_partitioned_keys() {
+    const std::uint16_t N_THREADS = 256;
+    std::vector<Value> initial_values(N_THREADS);
+    std::iota(initial_values.begin(), initial_values.end(), 1);
+    const Store store(initial_values);
+    auto manager = TransactionManager::create();
+    std::vector<std::thread> threads(N_THREADS);
+    for (std::uint16_t i = 0; i < N_THREADS; i++) {
+        threads[i] = std::thread([&manager, &store, i]() {
+            Key key = i;
+            for (unsigned char j = 0; j < 100; j++) {
+                auto t = manager->begin();
+                ASSERT(t.write(store, key, j).has_value());
+                ASSERT(t.optimistic_commit(store).has_value());
+            }
+        });
+    }
+    for (std::thread& t : threads) {
+        t.join();
+    }
+    // Ensure all values are 99
+    auto t = manager->begin();
+    for (std::uint16_t i = 0; i < N_THREADS; i++) {
+        ASSERT_EQ(std::optional<Value>(99), t.optimistic_read(store, i));
+    }
+    ASSERT(t.optimistic_commit(store).has_value());
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         return 2;
@@ -254,6 +273,14 @@ int main(int argc, char** argv) {
         }
         if (std::string_view(argv[1]) == "non_conflicting_writes_both_commit") {
             non_conflicting_writes_both_commit();
+            return 0;
+        }
+        if (std::string_view(argv[1]) == "parallel_reads_partitioned_keys") {
+            parallel_reads_partitioned_keys();
+            return 0;
+        }
+        if (std::string_view(argv[1]) == "parallel_writes_partitioned_keys") {
+            parallel_writes_partitioned_keys();
             return 0;
         }
     } catch (const std::exception& error) {
