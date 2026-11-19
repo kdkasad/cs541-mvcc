@@ -36,6 +36,7 @@ if(BUILD_TESTING)
         write_after_aborted_write_succeeds
         non_repeatable_read_is_aborted
         version_created_and_invalidated_within_read_transaction
+        non_conflicting_writes_both_commit
     )
         add_test(NAME ${test_name} COMMAND cs541_mvcc_tests ${test_name})
         set_tests_properties(${test_name} PROPERTIES TIMEOUT 10)

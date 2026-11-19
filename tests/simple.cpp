@@ -184,6 +184,20 @@ void version_created_and_invalidated_within_read_transaction() {
     ASSERT(t1.optimistic_commit(store).has_value());
 }
 
+void non_conflicting_writes_both_commit() {
+    const Store store({1, 2, 3, 4, 5});
+    auto manager = TransactionManager::create();
+    auto t1 = manager->begin();
+    auto t2 = manager->begin();
+    ASSERT(t1.write(store, 0, 2).has_value());
+    ASSERT(t2.write(store, 1, 3).has_value());
+    ASSERT(t1.optimistic_commit(store).has_value());
+    ASSERT(t2.optimistic_commit(store).has_value());
+    auto t3 = manager->begin();
+    ASSERT_EQ(std::optional<Value>(2), t3.optimistic_read(store, 0));
+    ASSERT_EQ(std::optional<Value>(3), t3.optimistic_read(store, 1));
+}
+
 int main(int argc, char** argv) {
     if (argc != 2) {
         return 2;
@@ -236,6 +250,10 @@ int main(int argc, char** argv) {
         if (std::string_view(argv[1]) ==
             "version_created_and_invalidated_within_read_transaction") {
             version_created_and_invalidated_within_read_transaction();
+            return 0;
+        }
+        if (std::string_view(argv[1]) == "non_conflicting_writes_both_commit") {
+            non_conflicting_writes_both_commit();
             return 0;
         }
     } catch (const std::exception& error) {
