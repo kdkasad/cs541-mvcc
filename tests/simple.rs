@@ -147,3 +147,36 @@ fn write_after_aborted_write_succeeds() {
     let mut t3 = manager.begin();
     assert_eq!(Some(3), t3.optimistic_read(&store, 0));
 }
+
+#[test]
+fn non_repeatable_read_is_aborted() {
+    let store = Store::new(vec![1, 2, 3, 4, 5]);
+    let manager = TransactionManager::new();
+    let mut t1 = manager.begin();
+    let mut t2 = manager.begin();
+    assert_eq!(Some(1), t1.optimistic_read(&store, 0));
+    t2.write(&store, 0, 2).unwrap();
+    t2.optimistic_commit(&store).unwrap();
+    assert_eq!(Some(1), t1.optimistic_read(&store, 0));
+    assert_eq!(
+        Err(CommitError::NotSerializable),
+        t1.optimistic_commit(&store)
+    );
+}
+
+#[test]
+fn version_created_and_invalidated_within_read_transaction() {
+    let store = Store::new(vec![1, 2, 3, 4, 5]);
+    let manager = TransactionManager::new();
+    let mut t1 = manager.begin();
+    let mut t2 = manager.begin();
+    assert_eq!(Some(1), t1.optimistic_read(&store, 0));
+    // If committed, this write would invalidate t1
+    t2.write(&store, 0, 2).unwrap();
+    assert_eq!(Some(2), t2.optimistic_read(&store, 0));
+    assert_eq!(Some(1), t1.optimistic_read(&store, 0));
+    t2.abort(&store);
+    assert_eq!(Some(1), t1.optimistic_read(&store, 0));
+    // Because t2 aborted, t1 should commit successfully
+    t1.optimistic_commit(&store).unwrap();
+}
