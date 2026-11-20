@@ -11,8 +11,6 @@
 - Uses mutexes instead of bit-packing and atomic CAS.
   - This adds a small amount of overhead, but it's a constant difference (doesn't change time complexity), and it's the same overhead for both optimistic and pessimistic transactions, so it shouldn't significantly affect the comparison.
 - Only serializable isolation level (no read committed, repeatable read, or snapshot isolation)
-- A given transaction can only write to a given key once
-  - This simplifies the cases and avoids the need to implement the case where the transaction updates the version it already created.
 
 ### Not implemented yet
 - Pessimistic (locking) transactions

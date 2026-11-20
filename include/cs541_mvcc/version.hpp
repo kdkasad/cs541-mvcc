@@ -3,6 +3,7 @@
 #include "cs541_mvcc/mutex_wrapper/mutex.hpp"
 #include "cs541_mvcc/timestamp.hpp"
 
+#include <atomic>
 #include <memory>
 #include <variant>
 
@@ -21,7 +22,7 @@ class TransactionManager;
 
 struct Version {
     Key key;
-    Value value;
+    std::atomic<std::uint64_t> value;
     mutex_wrapper::Mutex<TxnIdOrTimestamp> begin;
     mutex_wrapper::Mutex<TxnIdOrTimestamp> end;
     mutex_wrapper::Mutex<std::shared_ptr<Version>> previous;

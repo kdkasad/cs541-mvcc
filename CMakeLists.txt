@@ -46,6 +46,7 @@ if(BUILD_TESTING)
         read_stale_version_from_aborted_writer
         parallel_reads_partitioned_keys
         parallel_writes_partitioned_keys
+        repeated_writes
     )
         add_test(NAME ${test_name} COMMAND cs541_mvcc_tests ${test_name})
         set_tests_properties(${test_name} PROPERTIES TIMEOUT 10)

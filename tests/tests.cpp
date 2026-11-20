@@ -1,4 +1,3 @@
-#include "cs541_mvcc/transaction.hpp"
 #include "utils.h"
 #include "cs541_mvcc/lib.hpp"
 
@@ -14,6 +13,31 @@ void simple_read_existing() {
     auto manager = TransactionManager::create();
     auto t1 = manager->begin();
     ASSERT_EQ(std::optional<Value>{1}, t1.optimistic_read(store, 0));
+}
+
+void repeated_writes() {
+    const Store store({1});
+    auto manager = TransactionManager::create();
+    auto reader = manager->begin();
+    auto writer = manager->begin();
+    ASSERT(writer.write(store, 0, 2).has_value());
+    ASSERT_EQ(std::optional<Value>{2}, writer.optimistic_read(store, 0));
+    ASSERT(writer.write(store, 0, 3).has_value());
+    ASSERT_EQ(std::optional<Value>{3}, writer.optimistic_read(store, 0));
+    ASSERT_EQ(std::optional<Value>{1}, reader.optimistic_read(store, 0));
+    ASSERT(writer.optimistic_commit(store).has_value());
+    ASSERT_EQ(std::optional<Value>{1}, reader.optimistic_read(store, 0));
+    reader.abort(store);
+
+    auto t3 = manager->begin();
+    ASSERT_EQ(std::optional<Value>{3}, t3.optimistic_read(store, 0));
+    ASSERT(t3.write(store, 0, 4).has_value());
+    ASSERT(t3.write(store, 0, 5).has_value());
+    t3.abort(store);
+    auto after_abort = manager->begin();
+    ASSERT_EQ(std::optional<Value>{3}, after_abort.optimistic_read(store, 0));
+    ASSERT(after_abort.write(store, 0, 6).has_value());
+    ASSERT(after_abort.optimistic_commit(store).has_value());
 }
 
 void simple_read_missing() {
@@ -298,6 +322,10 @@ int main(int argc, char** argv) {
         }
         if (std::string_view(argv[1]) == "parallel_writes_partitioned_keys") {
             parallel_writes_partitioned_keys();
+            return 0;
+        }
+        if (std::string_view(argv[1]) == "repeated_writes") {
+            repeated_writes();
             return 0;
         }
     } catch (const std::exception& error) {

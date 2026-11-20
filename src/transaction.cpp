@@ -1,7 +1,6 @@
 #include "cs541_mvcc/transaction.hpp"
 #include "cs541_mvcc/store.hpp"
 
-#include <algorithm>
 #include <iostream>
 #include <stdexcept>
 #include <utility>
@@ -55,7 +54,7 @@ std::optional<Value> Transaction::optimistic_read_impl(const Store& store, Key k
     while (current) {
         auto version = current;
         if (version->is_visible_at(metadata_->begin_ts, metadata_->id, *manager_)) {
-            const auto value = version->value;
+            const auto value = version->value.load();
             read_set_.push_back(version);
             return value;
         }
@@ -79,15 +78,16 @@ std::optional<std::vector<Value>> Transaction::optimistic_scan(const Store& stor
 
 std::expected<void, WriteError> Transaction::write(const Store& store, Key key, Value value) {
     panic_if_not_active();
-    if (std::ranges::any_of(write_set_,
-                            [key](const auto& entry) { return entry.new_version->key == key; })) {
-        return std::unexpected(WriteError::AlreadyWritten);
+    const auto found = write_set_.find(key);
+    if (found != write_set_.end()) {
+        found->second.new_version->value.store(value);
+        return {};
     }
     auto entry = store.install_update(key, value, metadata_->id, metadata_->begin_ts);
     if (!entry) {
         return std::unexpected(entry.error());
     }
-    write_set_.push_back(std::move(*entry));
+    write_set_.emplace(key, std::move(*entry));
     return {};
 }
 
@@ -97,7 +97,8 @@ void Transaction::abort(const Store& store) {
         throw std::logic_error("transaction must be active or preparing");
     }
     *metadata_->status_.lock() = Aborted{};
-    for (auto& [old, new_version] : std::exchange(write_set_, {})) {
+    for (auto& [key, entry] : std::exchange(write_set_, {})) {
+        auto& [old, new_version] = entry;
         // Larson et al. sets the begin timestamp to infinity. Instead, we
         // just remove the version from the list.
         store.remove_head(new_version);
@@ -186,7 +187,8 @@ std::expected<void, CommitError> Transaction::optimistic_commit(const Store& sto
     *metadata_->status_.lock() = Committed{end_ts};
 
     // Update written versions
-    for (auto& [old, new_version] : std::exchange(write_set_, {})) {
+    for (auto& [key, entry] : std::exchange(write_set_, {})) {
+        auto& [old, new_version] = entry;
         *new_version->begin.lock() = end_ts;
         auto end = old->end.lock();
         if (const auto* writer = std::get_if<TxnId>(&*end); writer && *writer == metadata_->id) {

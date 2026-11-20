@@ -41,8 +41,6 @@ enum class WriteError {
     /// A write-write conflict happened.
     /// Another transaction updated the same key during our transaction.
     Conflict,
-    /// This key has already been written in this transaction.
-    AlreadyWritten,
 };
 enum class CommitError { NotSerializable };
 
@@ -67,7 +65,7 @@ public:
 class Transaction {
     std::shared_ptr<TxnMetadata> metadata_;
     std::vector<std::shared_ptr<Version>> read_set_;
-    std::vector<WriteEntry> write_set_;
+    std::unordered_map<Key, WriteEntry> write_set_;
     std::shared_ptr<TransactionManager> manager_;
     Transaction(std::shared_ptr<TxnMetadata> metadata, std::shared_ptr<TransactionManager> manager);
     friend class TransactionManager;
