@@ -28,3 +28,32 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ./build/cs541_mvcc_demo # this also exists but doesn't do much rn
 ```
+
+## How to benchmark
+
+Use a Release build (Debug is much slower and prints debug messages). The benchmark prints an
+aligned table by default; pass `--csv` for CSV.
+
+```sh
+make -S . -B build-release -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Release
+cmake --build build-release
+./build-release/cs541_mvcc_bench
+./build-release/cs541_mvcc_bench --csv > results.csv
+```
+
+The sweep is defined in `bench/main.cpp`. Each run does a fixed number of transactions per
+thread rather than running for a fixed time, since there's no GC and memory grows with every
+write.
+
+### Known behaviors
+- **Throughput drops as threads increase.** Every transaction takes the single
+  `TransactionManager` mutex 3 times (begin, commit timestamp, removal). Under contention
+  most CPU time goes to the OS putting waiting threads to sleep. Larson et al. use atomic
+  counters instead.
+- **The 10-key contention run looks better than 100 keys.** It has fewer aborts and higher
+  throughput. Threads rarely sleep in the OS there, so transactions finish faster and have
+  less time to be invalidated. This reflects mutex/OS scheduling, not MVCC; use 10000 → 100
+  keys as the contention curve.
+- **Some aborts are due to missing commit dependencies.** `read_miss` aborts, and some
+  `validation` aborts, happen when a transaction runs into another one that is preparing.
+  Larson et al. would wait instead of aborting.

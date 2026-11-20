@@ -19,6 +19,12 @@ endif()
 add_executable(cs541_mvcc_demo src/main.cpp)
 target_link_libraries(cs541_mvcc_demo PRIVATE cs541_mvcc)
 
+add_executable(cs541_mvcc_bench bench/main.cpp bench/workload.cpp bench/report.cpp)
+target_link_libraries(cs541_mvcc_bench PRIVATE cs541_mvcc)
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    target_compile_options(cs541_mvcc_bench PRIVATE -Wall -Wextra -Wpedantic)
+endif()
+
 include(CTest)
 if(BUILD_TESTING)
     add_executable(cs541_mvcc_tests tests/tests.cpp)
@@ -37,6 +43,7 @@ if(BUILD_TESTING)
         non_repeatable_read_is_aborted
         version_created_and_invalidated_within_read_transaction
         non_conflicting_writes_both_commit
+        read_stale_version_from_aborted_writer
         parallel_reads_partitioned_keys
         parallel_writes_partitioned_keys
     )

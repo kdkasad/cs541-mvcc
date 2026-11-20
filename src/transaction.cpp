@@ -166,8 +166,10 @@ std::expected<void, CommitError> Transaction::optimistic_commit(const Store& sto
                 // commits or aborts
                 return true;
             }
+#ifndef NDEBUG
             std::cerr
                 << "Aborting transaction because commit dependencies are not implemented yet\n";
+#endif
             return false;
         }();
         if (!passes) {

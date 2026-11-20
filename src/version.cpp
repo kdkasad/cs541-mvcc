@@ -2,7 +2,6 @@
 #include "cs541_mvcc/transaction.hpp"
 
 #include <iostream>
-#include <stdexcept>
 
 namespace cs541_mvcc {
 Version::Version(Key key, Value value, TxnIdOrTimestamp begin, TxnIdOrTimestamp end,
@@ -16,10 +15,12 @@ bool Version::is_visible_at(Timestamp ts, TxnId reader,
     // fields and checking the manager for the transactions they reference
     auto begin = this->begin.lock();
     auto end = this->end.lock();
-    const auto txn_status = [&](TxnId id) {
+    const auto txn_status = [&](TxnId id) -> TxnStatus {
         auto metadata = txn_manager.get(id);
         if (!metadata) {
-            throw std::logic_error("version references transaction that doesn't exist");
+            // Committers replace their ID (needs our locks) before leaving the manager,
+            // so a missing writer must have aborted.
+            return Aborted{};
         }
         return metadata->status();
     };
@@ -41,7 +42,9 @@ bool Version::is_visible_at(Timestamp ts, TxnId reader,
         if (const auto* committed = std::get_if<Committed>(&status)) {
             return committed->end_ts <= ts;
         }
+#ifndef NDEBUG
         std::cerr << "Making version invisible because the writer is preparing\n";
+#endif
         return false;
     }();
     if (!visible_according_to_begin) {
@@ -65,7 +68,9 @@ bool Version::is_visible_at(Timestamp ts, TxnId reader,
     if (const auto* committed = std::get_if<Committed>(&status)) {
         return ts < committed->end_ts;
     }
+#ifndef NDEBUG
     std::cerr << "Making version invisible because the writer is preparing\n";
+#endif
     return false;
 }
 }

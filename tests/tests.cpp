@@ -165,6 +165,19 @@ void non_conflicting_writes_both_commit() {
     ASSERT_EQ(std::optional<Value>(3), t3.optimistic_read(store, 1));
 }
 
+// Reader holds a version whose writer then aborts; it should be invisible, not throw.
+void read_stale_version_from_aborted_writer() {
+    const Store store({1, 2, 3, 4, 5});
+    auto manager = TransactionManager::create();
+    auto t1 = manager->begin();
+    ASSERT(t1.write(store, 0, 2).has_value());
+    auto stale = store.get_latest_version(0);
+    t1.abort(store);
+    ASSERT(!stale->is_visible_at(Timestamp{100}, TxnId{100}, *manager));
+    auto t2 = manager->begin();
+    ASSERT_EQ(std::optional<Value>{1}, t2.optimistic_read(store, 0));
+}
+
 // Spawn N_THREADS threads. Each one reads key i 100 times then commits.
 void parallel_reads_partitioned_keys() {
     const std::uint16_t N_THREADS = 256;
@@ -273,6 +286,10 @@ int main(int argc, char** argv) {
         }
         if (std::string_view(argv[1]) == "non_conflicting_writes_both_commit") {
             non_conflicting_writes_both_commit();
+            return 0;
+        }
+        if (std::string_view(argv[1]) == "read_stale_version_from_aborted_writer") {
+            read_stale_version_from_aborted_writer();
             return 0;
         }
         if (std::string_view(argv[1]) == "parallel_reads_partitioned_keys") {
